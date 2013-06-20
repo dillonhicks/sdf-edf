@@ -1,0 +1,8 @@
+<testconfig>
+    <thread id="0" name="thread-0" intervals="1" loop_count="1000000" cpu="0" deadline="5" />
+    <thread id="1" name="thread-1" intervals="1" loop_count="1000000" cpu="0" deadline="2" />
+    <thread id="2" name="thread-2" intervals="1" loop_count="1000000" cpu="0" deadline="4" />
+    <thread id="3" name="thread-3" intervals="1" loop_count="1000000" cpu="0" deadline="1" />
+    <thread id="4" name="thread-4" intervals="1" loop_count="1000000" cpu="0" deadline="3" />
+    <thread id="5" name="thread-5" intervals="1" loop_count="1000000" cpu="0" deadline="0" />
+</testconfig>

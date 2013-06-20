@@ -1,0 +1,4 @@
+<testconfig>
+    <thread id="1" name="test" intervals="50000" loop_count="50000" />
+    <thread id="2" name="test1" intervals="50000" loop_count="50000" />
+</testconfig>

@@ -1,0 +1,26 @@
+README
+======
+
+Each of the directories under kmods represents a deveopmental stage of
+the edf kernel module as outlined in requirements.rst.
+
+The current iteration will be sdf_edf#/ where # is the highest number
+of all of the directories under kmods and previous iterations will be
+given the number corresponding to their iteration.
+
+For example, sdf_edf0 would correspond to EDF Iteration 0.
+
+And if kmods/ had the children:
+
+sdf_edf0/
+sdf_edf1/
+sdf_edf2/
+sdf_edf3/
+
+
+So, sdf_edf3 would be the most current [and likely unstable/developmental] iteration.
+
+Also, there is a symlink "sdf_edf" which should alway link to the most
+current development iteration.
+
+

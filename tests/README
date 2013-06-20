@@ -1,0 +1,41 @@
+README
+=======
+
+Also see the requirements.rst for sdf_edf for more information.
+
+The user space test programs are given designations that correspond to
+their iteration/generation in requirements.rst (although I believe
+requirements starts numbering at 1 and the programs start numbering at
+0). Since they are for "Earliest Deadline First User Program
+Iteration#" they are thus named (for brevity) in the form:
+
+    edfup#
+
+edfup0: Simple tunable cpu bound workloops example for 1, 2, 4, and 8
+    cpus.
+
+edfup1: Same as edfup0 but insert nanosleeps.
+
+edfup2: Change dealine units to use timespec
+
+edfup (no number) is a symlink to the most current edf user program.
+
+
+Misc
+****
+
+future: Just random scenarious and code ideas that I may want to use
+    for testing in the future.
+
+
+Historical Reference
+********************
+
+cpu-bound-workloops: Inital code off of which edfup0 was based. Had to
+    change the name of some of the C files due to some of the
+    automagic naming from DUSI.
+
+dsuidbg: Experimental directory where I was trying to figure out an
+    arcane BUG in DSUI. Moral of the story, you always need at least
+    one insturmentation point in your code if you are compiling
+    against dsui.

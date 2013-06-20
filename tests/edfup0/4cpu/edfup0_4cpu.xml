@@ -1,0 +1,28 @@
+<testconfig>
+    <thread id="0" name="thread-0-0" intervals="1" loop_count="1000000" cpu="0" deadline="2" />
+    <thread id="1" name="thread-0-1" intervals="1" loop_count="1000000" cpu="0" deadline="4" />
+    <thread id="2" name="thread-0-2" intervals="1" loop_count="1000000" cpu="0" deadline="1" />
+    <thread id="3" name="thread-0-3" intervals="1" loop_count="1000000" cpu="0" deadline="3" />
+    <thread id="4" name="thread-0-4" intervals="1" loop_count="1000000" cpu="0" deadline="0" />
+    
+    <thread id="5" name="thread-1-0" intervals="1" loop_count="1000000" cpu="1" deadline="2" />
+    <thread id="6" name="thread-1-1" intervals="1" loop_count="1000000" cpu="1" deadline="4" />
+    <thread id="7" name="thread-1-2" intervals="1" loop_count="1000000" cpu="1" deadline="1" />
+    <thread id="8" name="thread-1-3" intervals="1" loop_count="1000000" cpu="1" deadline="3" />
+    <thread id="9" name="thread-1-4" intervals="1" loop_count="1000000" cpu="1" deadline="0" />
+
+ 
+    <thread id="10" name="thread-2-0" intervals="1" loop_count="1000000" cpu="2" deadline="2" />
+    <thread id="11" name="thread-2-1" intervals="1" loop_count="1000000" cpu="2" deadline="4" />
+    <thread id="12" name="thread-2-2" intervals="1" loop_count="1000000" cpu="2" deadline="1" />
+    <thread id="13" name="thread-2-3" intervals="1" loop_count="1000000" cpu="2" deadline="3" />
+    <thread id="14" name="thread-2-4" intervals="1" loop_count="1000000" cpu="2" deadline="0" />
+
+
+    <thread id="15" name="thread-3-0" intervals="1" loop_count="1000000" cpu="3" deadline="2" />
+    <thread id="16" name="thread-3-1" intervals="1" loop_count="1000000" cpu="3" deadline="4" />
+    <thread id="17" name="thread-3-2" intervals="1" loop_count="1000000" cpu="3" deadline="1" />
+    <thread id="18" name="thread-3-3" intervals="1" loop_count="1000000" cpu="3" deadline="3" />
+    <thread id="19" name="thread-3-4" intervals="1" loop_count="1000000" cpu="3" deadline="0" />
+
+</testconfig>

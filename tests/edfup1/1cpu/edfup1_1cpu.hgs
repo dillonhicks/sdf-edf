@@ -1,0 +1,92 @@
+# edfup1.gsh
+#
+# Test heirarchy for sdf_edf
+# 
+#
+
+#
+# Installation information is currently for reference 
+# for expansion that is planned for the future. 
+# Such as multiple hierarchies within a file, exectuable based
+# hierarchy attachment points, etc.
+#
+<gsh-installation>
+local-root = "edfup1"
+attachment-point = "gsched_top_seq_group"
+
+
+<groups>
+
+edfup1 = {
+	sdf = "sdf_edf"
+	attributes = [managed]
+	per_group_data = {}
+	members = [
+		thread-0,
+		thread-1,
+		thread-2,
+		thread-3,
+		thread-4
+        ]
+	member_name = "edfup1_mem"
+	comment = ""
+}
+
+# Creates seven Threads that use simple-thread as a specfication
+# (template).
+#  <desired-thread-name> = <thread-specification-name>
+#
+<threads>
+thread-0 = "thread-0"
+thread-1 = "thread-1"
+thread-2 = "thread-2"
+thread-3 = "thread-3"
+thread-4 = "thread-4"
+
+<thread-specification>
+thread-0 = {
+	
+	attributes = [exclusive]
+	per_member_data = {
+		deadline = 10000000
+	}
+	comment = ""
+}
+
+thread-1 = {
+	
+	attributes = [exclusive]
+	per_member_data = {
+		deadline = 20000000
+	}
+	comment = ""
+}
+
+thread-2 = {
+	
+	attributes = [exclusive]
+	per_member_data = {
+		deadline = 30000000
+	}
+	comment = ""
+}
+
+thread-3 = {
+	
+	attributes = [exclusive]
+	per_member_data = {
+		deadline = 40000000
+	}
+	comment = ""
+}
+
+thread-4 = {
+	
+	attributes = [exclusive]
+	per_member_data = {
+		deadline = 50000000
+	}
+	comment = ""
+}
+
+

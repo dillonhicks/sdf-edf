@@ -1,0 +1,48 @@
+<dski>
+output_base = "./tmp/cpu-bound-workloops.dski.bin"
+child = "gschedexec cpu-bound-workloops.gsh ./cpu-bound-workloops --threads=1 --loops=1000 -c --dsui-output ./tmp/cpu-bound-workloops.dsui.bin"
+
+<channels>
+chan1 = {
+	buffer_size = 500000,
+	buffer_count = 50
+}
+chan2 = {
+	buffer_size = 500000,
+	buffer_count = 50
+}
+
+<datastreams>
+dski_nofilter = {
+	channel = chan1
+	filters = []
+	enabled = {
+		CCSM = true
+		HGS = true
+	}
+}
+
+dski_filtered = {
+	channel = chan2
+	filters = [
+		task( 
+			ccsm_name = "cpu_bound_workloops"
+		)
+	]
+	enabled = {
+		SCHEDULER = [
+			SWITCH_TO,
+			SWITCH_FROM
+		]
+		FORK = [
+			DO_FORK
+		]
+
+# TODO: Define more useful events that could be used for showing
+#    execution intervals.
+
+                SDF_EDF = [
+                        SCHED_CHOICE,
+		]
+	}
+}

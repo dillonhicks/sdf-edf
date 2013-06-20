@@ -1,0 +1,9 @@
+<params>
+  
+  <thread id="0" name="thread-0-0" intervals="5"  loop_count="10000" cpu="0" period_sec="0" period_nsec="176000000" />
+  <thread id="1" name="thread-0-1" intervals="5"  loop_count="10000" cpu="0" period_sec="0" period_nsec="8000000" />
+  <thread id="2" name="thread-0-2" intervals="5"  loop_count="10000" cpu="0" period_sec="0" period_nsec="4000000" />
+  <thread id="3" name="thread-0-3" intervals="5" loop_count="10000" cpu="0" period_sec="0" period_nsec="2000000" />
+  <thread id="4" name="thread-0-4" intervals="5" loop_count="100000000" cpu="0" period_sec="0" period_nsec="1" />
+
+</params>

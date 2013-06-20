@@ -1,0 +1,799 @@
+/**
+ * 
+ * Earliest Deadline First SDF
+ */
+#include <linux/time.h>
+#include <linux/hrtimer.h>
+#include <linux/kusp/hgs.h> 
+#include <linux/module.h> 
+#include <linux/list.h>
+#include <linux/kusp/dski.h>
+#include "../../include/linux/hgs_sdf_edf.h" /* change to <linux/hgs_sdf_edf.h> for std install*/
+
+
+
+/* Forward declaration */
+static void __sdf_edf_set_member_status(struct edf_group *gd, 
+					struct edf_member *md, int next_status);
+
+
+/**
+ * Prepare to make a scheduling decision. This function executes once
+ * before iterator_next.
+ *
+ * @group: The group which is being given a chance to pick a member to run.
+ * @rq: The CFS runqueue for the current CPU.
+ */
+static void 
+sdf_edf_iterator_prepare(struct gsched_group *group, struct rq *rq)
+{
+	DSTRM_EVENT(SDF_EDF_FUNC, ITERATOR_PREPARE, 0);
+	atomic_spin_lock(&group->lock);
+}
+
+
+
+/** 
+ * Calling context holds the group->lock
+ */
+static __always_inline struct edf_member *
+__sdf_edf_find_earliest_deadline(struct gsched_group *group, struct gsched_member *prev,
+				 struct edf_cpu *cd, int cpu)
+{
+	struct edf_group          *gd;
+	struct edf_member        *md;
+	struct edf_member_cpu   *mem_cpu;
+	struct edf_member        *next = NULL;
+
+	gd = (struct edf_group*)group->sched_data;
+
+	DSTRM_EVENT(SDF_EDF_FUNC, FIND_EARLIEST_DL, 0);
+	switch(gd->status){
+	case SDF_EDF_GROUP_SETUP:
+		if (prev)
+		{
+			md = prev->sched_data;
+			mem_cpu = &md->cpu[cpu];
+			list_for_each_entry_continue(mem_cpu, &cd->sorted_members, sorted_ent) {
+				md = mem_cpu->edf_member;
+				/* Doesn't matter in which order we
+				 * run the setup members until they
+				 * get to sync so grab the first and
+				 * go with it. 
+				 */
+				if (md->status == SDF_EDF_MEM_SETUP){
+					next = md;
+					break;
+				}
+				
+			}
+		}
+		else {
+			list_for_each_entry(mem_cpu, &cd->sorted_members, sorted_ent) {
+				md = mem_cpu->edf_member;
+				/* Doesn't matter in which order we
+				 * run the setup members until they
+				 * get to sync so grab the first and
+				 * go with it. 
+				 */
+				if (md->status == SDF_EDF_MEM_SETUP){
+					next = md;
+					break;
+				}
+			}
+		}
+		break;
+		
+	case SDF_EDF_GROUP_RUNNING:
+		if (prev) {
+			md = prev->sched_data;
+			mem_cpu = &md->cpu[cpu];
+			list_for_each_entry_continue(mem_cpu, &cd->sorted_members, sorted_ent) {
+				md = mem_cpu->edf_member;
+				/* Find the member with the earliest
+				 * deadline that is runnable within
+				 * the current epoch.
+				 */
+				if ((!next || timespec_compare(&next->deadline, &md->deadline) > 0) &&
+					md->status == SDF_EDF_MEM_READY) {
+					next = md;
+				}
+				
+			}
+		}else {
+			list_for_each_entry(mem_cpu, &cd->sorted_members, sorted_ent) {
+				md = mem_cpu->edf_member;
+
+				/* Find the member with the earliest
+				 * deadline that is runnable within
+				 * the current epoch.
+				 */
+				if ((!next || timespec_compare(&next->deadline, &md->deadline) > 0) &&
+					md->status == SDF_EDF_MEM_READY) {
+					next = md;
+				}
+
+			}
+		}
+		
+		break;
+
+	default:
+		BUG();
+	};
+
+	return next;
+}
+
+/**
+ * Pick a member which should be scheduled. The member could be a task
+ * or a group. If it is a group then these iterator functions will be
+ * executed for the group. If the member is a task then group
+ * scheduling will attempt to schedule the task. However, scheduling
+ * the task is not always successful and sometimes a group will not
+ * make a decision.  In these cases, group scheduling will call
+ * iterator_next again and another decision must be made.
+ *
+ * Three return values are possible:
+ * &GSCHED_LINUX: Stop group scheduling evaluation and immediately allow
+ *                linux(CFS( to make a decision.
+ * NULL: Indicate that no decision can be made.
+ * A member structure: The member group scheduling should evaluate next.
+ *
+ * @group: The group being iterated over.
+ * @prev: The last decision which was made by this group. It will be NULL
+ *        on the first time iterator_next is called.
+ *
+ * @rq: The CFS runqueue for the current CPU.
+ */
+static struct gsched_member *
+sdf_edf_iterator_next(struct gsched_group *group, struct gsched_member *prev,
+		       struct rq *rq)
+{
+
+	struct edf_cpu *cd;
+	struct edf_member *next = NULL;
+	int cpu;
+
+	DSTRM_EVENT(SDF_EDF_FUNC, ITERATOR_NEXT, 0);
+
+	cpu = smp_processor_id();
+     
+	/* Get the member list only for the current cpu */
+	cd = (struct edf_cpu*)group->cpu_sched_data[cpu];
+
+	next = __sdf_edf_find_earliest_deadline(group, prev, cd, cpu);
+
+	if (!next) {
+		DSTRM_EVENT(SDF_EDF, SCHED_CHOICE_NULL, 0);			    
+		return NULL;
+	}
+
+	DSTRM_EVENT_PRINTF(SDF_EDF, SCHED_CHOICE, 0, "%s", 
+			   next->member->ns->name);
+	
+	return next->member;       
+}
+
+/**
+ * iterator_finalize is called when a member picked by a group has
+ * been successfully evaluated. It allows the SDF to perform any
+ * necessary cleanup.
+ *
+ * @group: The group which has successfully picked a member for
+ *         group scheduling to evaluate.
+ * @next: The member which was picked by the group.
+ * @rq: The runqueue for CFS.
+ *
+ */
+static void sdf_edf_iterator_finalize(struct gsched_group *group,
+				  struct gsched_member *next, 
+				  struct rq *rq)
+{
+	DSTRM_EVENT(SDF_EDF_FUNC, ITERATOR_FINALIZE, 0);
+
+	atomic_spin_unlock(&group->lock);
+}
+
+
+/**
+ * insert_group is called when a group is created and specifies that
+ * it would like to be controlled by this sdf.  The group->lock is
+ * acquired before calling this function, by group scheduling, and the
+ * group structure is freely accessible without any concurrency
+ * control.
+ *
+ * @group: The group which is being placed under control of this SDF.
+ */
+static void sdf_edf_create_group(struct gsched_group *group)
+{
+	struct edf_cpu *cd = NULL;
+	struct edf_group *gd = NULL;
+	int cpu;
+
+	DSTRM_EVENT(SDF_EDF_FUNC, CREATE_GROUP, 0);       
+
+	/* Setup of the groups CPU lists */
+	for_each_possible_cpu(cpu) {
+		cd = (struct edf_cpu*)group->cpu_sched_data[cpu];
+
+		INIT_LIST_HEAD(&cd->sorted_members);
+	}
+
+	/* Initialization of the group's data */
+	gd = (struct edf_group*)group->sched_data;
+	gd->group = group;
+	gd->num_mems = 0;
+	gd->__mem_count = 0;
+	gd->__ready_count = 0;
+	gd->status = SDF_EDF_GROUP_SETUP;
+}
+
+
+/**
+ * setup_member is called when a member is being allocated by group
+ * scheduling. The member has not actually ben added to the given
+ * group but group scheduling knows that it is about to add the member
+ * to the group. The advantage of this function is that the group->lock
+ * is not held and blocking operations can be performed. However,
+ * the group structure should not be accessed because the group->lock
+ * is not held.
+ *
+ * @group: The group that the member will be added to later on.
+ * @member: The member structure to initialize.
+ */
+static void sdf_edf_setup_member(struct gsched_group *group, 
+                             struct gsched_member *member)
+{
+
+	struct edf_member* md = NULL;
+	int cpu;
+
+	DSTRM_EVENT(SDF_EDF_FUNC, SETUP_MEMBER, 0);
+
+	md = (struct edf_member*)member->sched_data;
+
+	md->member   = member;
+	md->deadline = SDF_EDF_DEFAULT_DEADLINE;	
+	md->status = SDF_EDF_MEM_SETUP;
+
+	DSTRM_EVENT(SDF_EDF, SETUP_MEMBER, 0);
+
+	for_each_possible_cpu(cpu) {
+		INIT_LIST_HEAD(&md->cpu[cpu].sorted_ent);
+		md->cpu[cpu].edf_member = md;
+	}
+	
+}
+
+
+
+static void __sdf_edf_sorted_insert(struct list_head *ent,
+				    struct list_head *list,
+				    struct timespec *deadline)
+{
+	struct list_head *insert_before;
+	struct edf_member_cpu *iter;
+
+	DSTRM_EVENT(SDF_EDF_FUNC, SORTED_INSERT_PRIV, 0);
+
+        insert_before = list;
+
+        list_for_each_entry(iter, list, sorted_ent) {
+                if (timespec_compare(deadline, &iter->edf_member->deadline) > 0) {
+                        insert_before = &iter->sorted_ent;
+                        break;
+                }
+        }
+
+        /*
+	 * List_add_tail will place the element before the destination element
+	 * becuase it links it into the tail (prev) pointer of the destination.
+         * If the new member is greater than all of the other members then     
+         * it will get insrted at the tail of the list.     
+         */
+        list_add_tail(ent, insert_before);
+
+}
+
+/**
+ * Calling context holds group->lock
+ * 
+ * Only called by EDF internally
+ */
+static void __sdf_edf_insert_member(struct gsched_group *group,
+		struct gsched_member *member, struct timespec *deadline)
+{
+	struct edf_cpu *cd;
+	struct edf_group *gd;
+	struct edf_member *md;
+	int cpu;
+
+	DSTRM_EVENT(SDF_EDF_FUNC, INSERT_MEMBER_PRIV, 0);
+
+	gd = (struct edf_group*)group->sched_data;
+	md = (struct edf_member*)member->sched_data;
+	
+	md->deadline = *deadline;
+
+
+	switch(member->type) {
+	case GSCHED_COMPTYPE_TASK:
+		cpu = gsched_task_cpu(&member->task);
+
+		cd = (struct edf_cpu*)group->cpu_sched_data[cpu];		
+
+		__sdf_edf_sorted_insert(&md->cpu[cpu].sorted_ent, 
+					&cd->sorted_members, deadline);
+
+		DSTRM_EVENT_PRINTF(SDF_EDF, INSERT_TASK, 0, 
+				   "%d|%s", cpu, member->ns->name);
+
+		break;
+	case GSCHED_COMPTYPE_GROUP:
+		for_each_possible_cpu(cpu) {
+			cd = (struct edf_cpu*)group->cpu_sched_data[cpu];
+
+			__sdf_edf_sorted_insert(&md->cpu[cpu].sorted_ent,
+						&cd->sorted_members, deadline);
+		}
+		break;
+	default:
+		BUG();
+	};
+}
+
+
+/**
+ * Calling context holds group->lock.
+ *
+ * Called from hgs API level.
+ */
+static void sdf_edf_insert_member(struct gsched_group *group,
+				  struct gsched_member *member)
+{	
+
+	struct edf_group *gd;
+
+	DSTRM_EVENT(SDF_EDF_FUNC, INSERT_MEMBER, 0);
+
+	gd = (struct edf_group*)group->sched_data;
+
+	gd->__mem_count++;
+	
+	DSTRM_EVENT(SDF_EDF, INC_MEM_COUNT, gd->__mem_count);
+
+	__sdf_edf_insert_member(group, member, &SDF_EDF_DEFAULT_DEADLINE);
+
+		
+}
+
+/**
+ * Calling context holds group->lock
+ * 
+ */
+static void __sdf_edf_remove_member(struct gsched_group *group,
+				  struct gsched_member *member){
+
+	struct edf_member *md;
+	struct edf_group *gd;
+	int cpu;
+	
+	DSTRM_EVENT(SDF_EDF_FUNC, REMOVE_MEMBER_PRIV, 0);
+
+	gd = (struct edf_group*)group->sched_data;
+	md = (struct edf_member*)member->sched_data;
+  
+	switch(member->type) {
+	case GSCHED_COMPTYPE_TASK:
+		cpu = gsched_task_cpu(&member->task);
+		list_del(&md->cpu[cpu].sorted_ent);		
+		break;
+	case GSCHED_COMPTYPE_GROUP:
+		for_each_possible_cpu(cpu) {
+			list_del(&md->cpu[cpu].sorted_ent);
+		}
+		break;
+	default:
+		BUG();
+	};
+
+}
+
+
+/**
+ * Calling context holds group->lock
+ * 
+ * remove_member is called when a member is removed from the group.
+ * This can occur either because of an explicit call to group
+ * scheduling or implicitly due to a task dying.
+ * The group->lock is acquired before this function is called and
+ * this function cannot perform blocking operations.
+ * The group structure can be freely accessed.
+ *
+ * @group: The group the member is being removed from.
+ * @member: The member that is being removed.
+ */
+static void sdf_edf_remove_member(struct gsched_group  *group,
+				  struct gsched_member *member)
+{
+	struct edf_group *gd;
+	struct edf_member *md;
+
+	DSTRM_EVENT(SDF_EDF_FUNC, REMOVE_MEMBER, 0);
+
+	gd = (struct edf_group*)group->sched_data;
+	md = (struct edf_member*)member->sched_data;
+
+	gd->__mem_count--;
+
+	__sdf_edf_set_member_status(gd, md, SDF_EDF_MEM_CLEANUP);
+
+	DSTRM_EVENT_PRINTF(SDF_EDF, DEC_MEM_COUNT, 0, "%d", gd->__mem_count);    
+	
+	__sdf_edf_remove_member(group, member);
+}
+
+/**
+ * Calling context holds **NO** locks.
+ *
+ */
+static void sdf_edf_release_member(struct gsched_group  *group,
+				  struct gsched_member *member)
+{
+	DSTRM_EVENT(SDF_EDF_FUNC, RELEASE_MEMBER, current->pid); 
+}
+
+
+/**
+ * Calling context holds the group->lock
+ * 
+ * Called by GS when a task switches a CPU or its
+ * proxy switches CPUs.
+ *
+ * @param group Group that member belongs to.
+ * @param member Member that is being moved. It will always be a task.
+ * @param oldcpu The cpu from which it is moving.
+ * @param newcpu The cpu to which it is moving.
+ */
+static void sdf_edf_move_member(struct gsched_group *group,
+				struct gsched_member *member,
+				int oldcpu,
+				int newcpu)
+{
+	struct edf_member *md;
+	struct edf_cpu *cd;
+
+	DSTRM_EVENT(SDF_EDF_FUNC, MOVE_MEMBER, 0);
+
+	md = member->sched_data;
+	cd = group->cpu_sched_data[newcpu];
+
+	list_del(&md->cpu[oldcpu].sorted_ent);
+	__sdf_edf_sorted_insert(&md->cpu[newcpu].sorted_ent, &cd->sorted_members, &md->deadline);
+
+	DSTRM_EVENT_PRINTF(SDF_EDF, MOVE_MEMBER, 0, "%d|%d|%s", oldcpu, newcpu, member->ns->name);
+}
+
+
+/**
+ * Note: This is bogus, you have to populate the passed param
+ *     structure as you would populate the edf_member struct due to the
+ *     API automatically passing in void pointer that refers to a
+ *     structure that is sizeof(struct edf_member).
+ *     - Kept for reference.
+ */
+static int
+sdf_edf_get_member_params(struct gsched_group *group,
+			  struct gsched_member *member, void *param, size_t size)
+{
+	struct sdf_edf_mp *mp;
+	struct edf_member *md;
+	unsigned long flags;
+	int ret = 0;
+
+
+	if (!param || size != sizeof(struct sdf_edf_mp))
+		return -EINVAL;
+
+	mp = (struct sdf_edf_mp*)param;
+	      
+	md = (struct edf_member*)member->sched_data;
+
+	
+	switch(mp->cmd) {
+	case SDF_EDF_MP_CMD_DEADLINE:
+		atomic_spin_lock_irqsave(&group->lock, flags);
+		mp->deadline = md->deadline;
+		atomic_spin_unlock_irqrestore(&group->lock, flags);
+		break;
+
+	case SDF_EDF_MP_CMD_STATUS:
+		atomic_spin_lock_irqsave(&group->lock, flags);
+		mp->status = md->status;
+		atomic_spin_unlock_irqrestore(&group->lock, flags);
+		break;
+	default:	    
+		ret = -EINVAL;
+	};
+
+
+	return ret;
+}
+
+/**
+ * Calling context holds the group->lock
+ *
+ * 
+ * Note that this may be a place where we will need to relase all
+ * members which may be on different CPUS. 
+ */
+static void sdf_edf_release_all_members(struct edf_group *gd){
+
+	struct gsched_member *member;
+	struct gsched_group  *group;
+	struct edf_member    *md;
+
+	group = (struct gsched_group*)gd->group;
+
+	DSTRM_EVENT(SDF_EDF_FUNC, RELEASE_ALL_MEMBERS, 0);
+
+	list_for_each_entry(member, &group->all_members, owner_entry){
+		md = (struct edf_member*)member->sched_data;
+		DSTRM_EVENT(SDF_EDF, BARRIER_RELEASE, 0);
+		md->status = SDF_EDF_MEM_READY;
+
+	}
+
+}
+
+
+
+/**
+ * Calling context holds the group->lock
+ *
+ */
+static void __sdf_edf_set_member_status(struct edf_group *gd, struct edf_member *md, 
+				       int next_status)
+{
+	
+	int prev_status = md->status;
+
+	DSTRM_EVENT(SDF_EDF_FUNC, SET_MEMBER_STATUS, 0);
+
+	DSTRM_EVENT_PRINTF(SDF_EDF, SWITCH_STATUS, 0, "%d->%d", prev_status, next_status);
+
+	if(prev_status == SDF_EDF_MEM_SETUP &&
+		next_status == SDF_EDF_MEM_FINISHED )
+	{
+		gd->__ready_count++;
+
+		DSTRM_EVENT(SDF_EDF, INC_READY_COUNT, gd->__ready_count);
+		
+		if (gd->status == SDF_EDF_GROUP_SETUP && 
+		    gd->__ready_count == gd->num_mems)
+		{
+			gd->status = SDF_EDF_GROUP_RUNNING;
+			DSTRM_EVENT(SDF_EDF, GROUP_RUNNING, 0);
+			sdf_edf_release_all_members(gd);
+			return;
+		}	
+	}
+
+	md->status = next_status;
+}
+
+/**
+ * Calling context does not hold any hgs locks.
+ *
+ */
+static int
+sdf_edf_set_member_params(struct gsched_group *group,
+			  struct gsched_member *member, 
+			  void *param, size_t size)
+{
+	struct sdf_edf_mp *mp;
+	struct edf_member *md;
+	unsigned long flags;
+	int ret = 0;
+	int resched = false;
+
+	DSTRM_EVENT(SDF_EDF_FUNC, SET_MEMBER_PARAMS, 0);
+
+	mp = (struct sdf_edf_mp*)param;
+	md = (struct edf_member*)member->sched_data;
+
+	if (!param || size != sizeof(struct sdf_edf_mp))
+		return -EINVAL;
+
+
+	switch(mp->cmd){
+	case SDF_EDF_MP_CMD_DEADLINE:
+
+		DSTRM_EVENT_PRINTF(SDF_EDF, SET_DEADLINE, 0, "%s|%ld|%ld", member->ns->name, mp->deadline.tv_sec, mp->deadline.tv_nsec);
+
+		atomic_spin_lock_irqsave(&group->lock, flags);
+		/* This could be made more efficient by doing
+		 * a move instead of deleting and then re-inserting.
+		 */
+		__sdf_edf_remove_member(group, member);
+		__sdf_edf_insert_member(group, member, &mp->deadline);
+		atomic_spin_unlock_irqrestore(&group->lock, flags);
+
+		resched = true;
+
+		break;
+	case SDF_EDF_MP_CMD_STATUS:
+		
+		atomic_spin_lock_irqsave(&group->lock, flags);
+		__sdf_edf_set_member_status((struct edf_group*)group->sched_data, md, mp->status);
+		atomic_spin_unlock_irqrestore(&group->lock, flags);
+
+		resched = true;
+
+		break;
+	default:
+		ret = -EINVAL;
+	}	      
+
+	if (resched)
+		set_need_resched();
+
+	return ret;
+}
+
+
+/**
+ * Note: This is bogus, you have to populate the passed param
+ *     structure as you would populate the edf_group struct due to the
+ *     API automatically passing in void pointer that refers to a
+ *     structure that is sizeof(struct edf_group).
+ *     - Kept for reference.
+ */
+static int
+sdf_edf_get_group_params(struct gsched_group *group, void *param, size_t size)
+{
+	struct sdf_edf_gp *gp;
+	struct edf_group *gd;
+	unsigned long flags;
+	int ret = 0;
+
+	if (!param || size != sizeof(struct sdf_edf_gp))
+		return -EINVAL;
+
+	gp = (struct sdf_edf_gp*)param;
+	      
+	gd = (struct edf_group*)group->sched_data;
+
+	
+	switch(gp->cmd) {
+	case SDF_EDF_GP_CMD_NUM_MEMS:
+		atomic_spin_lock_irqsave(&group->lock, flags);
+		gp->num_mems = gd->num_mems;
+		atomic_spin_unlock_irqrestore(&group->lock, flags);
+		break;
+
+	case SDF_EDF_GP_CMD_MEM_COUNT:
+		atomic_spin_lock_irqsave(&group->lock, flags);
+		gp->mem_count = gd->__mem_count;
+		atomic_spin_unlock_irqrestore(&group->lock, flags);
+		break;
+	default:	    
+		ret = -EINVAL;
+		break;
+	}
+
+	
+	/* Change this to ret when this method becomes not so bogus */
+	return -EINVAL;
+}
+
+
+/**
+ * Calling context holds no locks.
+ * 
+ * Set the parameters for a group using this sdf.
+ * The group->lock is not held.
+ *
+ * @group: The group to set data on.
+ * @param: Typcially a structure defined by this sdf specifically
+ *         designed to carry data from user space to kernel space.
+ * @size: The size of param.
+ */
+static int sdf_edf_set_group_params(struct gsched_group *group,
+                                void *param, size_t size)
+{
+	struct sdf_edf_gp* gp;
+	struct edf_group* gd;
+	unsigned long flags;
+	int ret = 0;
+
+	DSTRM_EVENT(SDF_EDF_FUNC, SET_GROUP_PARAMS, 0);
+
+	if (!param || size != sizeof(struct sdf_edf_gp)) {
+		return -EINVAL;
+	}
+
+	gp = (struct sdf_edf_gp*)param;
+
+	gd = (struct edf_group*)group->sched_data;
+
+	switch(gp->cmd) {
+	case SDF_EDF_GP_CMD_NUM_MEMS:
+
+		atomic_spin_lock_irqsave(&group->lock, flags);
+		gd->num_mems = gp->num_mems;
+		DSTRM_EVENT(SDF_EDF, SET_NUM_MEMS, gd->num_mems);
+		atomic_spin_unlock_irqrestore(&group->lock, flags);
+
+		break;
+	default:
+		ret = -EINVAL;
+		break;
+	}
+
+	return ret;
+}
+
+
+/*
+ * This structure identifies the callbacks and other information
+ * about the SDF to group scheduling. It is sent to group scheduling
+ * when the module is loaded.
+ */
+struct gsched_sdf sdf_edf = {
+	.name = SDF_EDF_NAME,
+	.owner = THIS_MODULE,
+
+	.find_member = gsched_default_find_member,
+	
+	
+	.iterator_prepare  = sdf_edf_iterator_prepare,
+	.iterator_next     = sdf_edf_iterator_next,
+	.iterator_finalize = sdf_edf_iterator_finalize,
+	
+	.create_group  = sdf_edf_create_group,
+	.setup_member  = sdf_edf_setup_member,
+	.insert_member = sdf_edf_insert_member,
+	.remove_member = sdf_edf_remove_member,
+	.release_member = sdf_edf_release_member,
+	.move_member = sdf_edf_move_member,
+
+	.set_member_params = sdf_edf_set_member_params,
+	.get_member_params = sdf_edf_get_member_params,
+
+	.set_group_params = sdf_edf_set_group_params,
+	.get_group_params = sdf_edf_get_group_params,
+
+	.per_member_datasize = sizeof(struct edf_member),
+	.per_group_datasize = sizeof(struct edf_group),
+	.per_cpu_datasize  = sizeof(struct edf_cpu),
+
+};
+
+/*                                                                                                                       
+ * Called on module install. Registers the SDF with the Group
+ * Scheudling framework so that new groups may attempt to register
+ * this SDF.
+ */
+static int __init sdf_edf_init(void)
+{
+	gsched_register_scheduler(&sdf_edf);
+	return 0;
+}
+
+/*  
+ * Called on module uninstall. Unregisters the SDF from the Group
+ * Scheduling framework so that new groups may not attempt to register
+ * this SDF.
+ */
+static void __exit sdf_edf_cleanup(void)
+{
+	gsched_unregister_scheduler(&sdf_edf);
+}
+
+
+module_init(sdf_edf_init);
+module_exit(sdf_edf_cleanup);
+
+MODULE_LICENSE("GPL");

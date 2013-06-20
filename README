@@ -1,0 +1,124 @@
+README
+======
+
+This is an implentation of the **Earliest Deadline First** scheduling
+algorithm as an SDF kernel module for the KUSP HGS framework.
+
+**Co-contributors:**
+
+- Dillon Hicks
+- Jon Henderson
+
+Testing Instructions
+********************
+
+- Bootstrapping: Most of the times these steps can be skipped for
+   normal ITTC development.
+
+    - Checkout the KUSP Software, KUSP kernel, and KUSP kernel
+       configurations, as stated at `http://www.ittc.ku.edu/kusp`
+
+    - Install the KUSP Software::
+
+        $ cd $KUSPROOT
+	$ make
+	$ make install REMOTE=<your-testbed>
+
+- Build the proper kernel
+
+   - You will need the hgs-smp.config from
+      `configs/tphagan/hgs-smp.config`
+
+   - If you followed the KUSP advice pages you will be able to
+      accomplish this similarly to::
+
+          $ cd $KUSPKERNELROOT
+	  $ mkdir build
+	  $ cp <configs-path>/configs/tphagan/hgs-smp.config .config/build/.config
+	  $ make O=build oldconfig
+	  $ cd build
+	  $ make -j3 
+
+      You may wish to adapt this snippet to handle multiple build
+      configurations under your build directory. I do this based on
+      the name of the config of whcih I am building::
+
+          $ cd $KUSPKERNELROOT
+	  $ mkdir -p builds/hgs-smp
+	  $ cp <configs-path>/configs/tphagan/hgs-smp.config .config/builds/hgs-smp/.config
+	  $ make O=builds/hgs-smp oldconfig
+	  $ cd builds/hgs-smp
+	  $ make -j3 
+      
+      This can be helpful depending on what you are working.
+
+- Install the proper kernel::
+
+       $ ssh <my-testbed>
+       $ cd $KUSPKERNELROOT/build	
+       $ sudo make modules_install
+       $ sudo make install
+       $ sudo reboot    
+
+   After which you will need to wait for your testbed to reboot -- at
+   times this can take a while, that is why I advocate use of KVMS.
+	   
+- Make and install the sdf_edf.ko kernel module::
+
+       $ cd $KUSPROOT/workspace/sdf_edf/kmods/sdf_edf
+       $ make
+       ... output ...
+       $ sudo make install
+
+   To make sure that your installation was successful::
+
+      $ lsmod | grep hgs_sdf_edf
+      hgs_sdf_edf             4816  0 
+
+   Yes, it was installed.
+
+- Building a test::
+   
+      $ cd $KUSPROOT/workspace/sdf_edf/tests/<some-test>
+      $ make 
+      ...  lots of CMake/Make output ...
+      
+   Make sure to check for warnings and errors.::
+
+      $ make run
+      
+   This will use *dskictrl** to execute the program as stated in the
+   test's `.dski` configuration file.
+
+
+- **[FUTURE] Postprocessing**
+
+
+Notes and Forewarnings
+**********************
+
+- If you did not install the udev rules when installing the KUSP
+  software, you should due to `/dev/ccsm` and `/dev/group_sched` will
+  have the default permissions::
+
+       $ ls -la /dev/{ccsm,group_sched}
+       crw------- 1 root system 10, 63 2011-06-02 02:01 /dev/ccsm
+       crw------- 1 root system 10, 62 2011-06-02 02:01 /dev/group_sched
+
+  So you will not be able to open the CCSM and HGS IOCTL file
+  descriptors. The naive and time wasting approach is to `chmod 666`
+  them on startup; The best way is to install the UDEV rules::
+  
+      $ sudo cp $KUSPROOT/misc/40-kusp.rules /etc/udev/rules.d/
+
+- If there is an error during execution for some reason do note that
+  your system may:
+
+    - Explode (very likely)
+    - Panic
+    - Deadlock
+    - Have residual hierarchies in HGS or sets in CCSM that need to be
+      cleaned up.
+
+  
+  In all of these cases it is prudent to reboot the machine.

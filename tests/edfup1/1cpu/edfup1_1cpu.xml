@@ -1,0 +1,9 @@
+<progconf>
+  
+  <thread id="0" name="thread-0" intervals="5"  loop_count="10000" cpu="0" dl_sec="0" dl_nsec="176000000" />
+  <thread id="1" name="thread-1" intervals="5"  loop_count="10000" cpu="0" dl_sec="0" dl_nsec="8000000" />
+  <thread id="2" name="thread-2" intervals="5"  loop_count="10000" cpu="0" dl_sec="0" dl_nsec="4000000" />
+  <thread id="3" name="thread-3" intervals="5" loop_count="10000" cpu="0" dl_sec="0" dl_nsec="2000000" />
+  <thread id="4" name="thread-4" intervals="5" loop_count="10000" cpu="0" dl_sec="0" dl_nsec="100000" />
+
+</progconf>

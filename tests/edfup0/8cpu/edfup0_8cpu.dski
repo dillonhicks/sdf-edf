@@ -1,0 +1,41 @@
+<dski>
+output_base = "./tmp/edfup0_8cpu.dski.bin"
+child = "gschedexec edfup0_8cpu.hgs ../edfup0  --config=edfup0_8cpu.xml --dsui-output ./tmp/edfup0_8cpu.dsui.bin"
+
+<channels>
+chan1 = {
+	buffer_size = 500000,
+	buffer_count = 50
+}
+chan2 = {
+	buffer_size = 500000,
+	buffer_count = 50
+}
+
+<datastreams>
+dski_nofilter = {
+	channel = chan1
+	filters = []
+	enabled = {
+		CCSM = true
+		HGS = true
+	}
+}
+
+dski_filtered = {
+	channel = chan2
+	filters = [
+		task( 
+			ccsm_name = "edfup0"
+		)
+	]
+	enabled = {
+		CCSM = true
+
+		SDF_EDF = true	
+
+		EXIT = true
+
+
+	}
+}
