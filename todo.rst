@@ -1,6 +1,3 @@
- 
-Admiral Henderson, Commander of the 7th Fleet, Terror of K10, Crusher of Weak Souls
-====================================================================================
 
 - Reading List:
 
