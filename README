@@ -7,7 +7,7 @@ algorithm as an SDF kernel module for the KUSP HGS framework.
 **Co-contributors:**
 
 - Dillon Hicks
-- Jon Henderson
+- Jon Henderson (xml)
 
 Testing Instructions
 ********************
@@ -16,7 +16,7 @@ Testing Instructions
    normal ITTC development.
 
     - Checkout the KUSP Software, KUSP kernel, and KUSP kernel
-       configurations, as stated at `http://www.ittc.ku.edu/kusp`
+       configurations, as stated at `http://www.ittc.ku.edu/kusp/new`
 
     - Install the KUSP Software::
 
